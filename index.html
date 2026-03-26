@@ -37,8 +37,9 @@
             left: 0;
             width: 100%;
             height: 100%;
+            background-color: #000;
             background-image: url('Stars_Background_Black.png');
-            background-size: cover;
+            background-size: 1024px 628px; /* 2x the original size for better visibility */
             background-position: center;
             background-repeat: repeat;
             opacity: 0;
@@ -372,6 +373,7 @@
             // Start fading in starfield at 90% progress
             if (animationProgress >= 0.9 && !starfieldPhase) {
                 starfieldPhase = true;
+                console.log('Starting starfield fade-in at 90% progress');
                 starfield.classList.add('visible');
             }
             
