@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chad Stewart</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        /* Starfield background */
+        .starfield {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('Stars_Background_Black.png');
+            background-size: cover;
+            background-position: center;
+            opacity: 0;
+            z-index: 1;
+            transition: opacity 3s ease-in-out;
+        }
+
+        .starfield.visible {
+            opacity: 1;
+        }
+
+        /* Shooting stars */
+        .shooting-star {
+            position: fixed;
+            width: 128px;
+            height: 128px;
+            background-image: url('FallingStar_Sprites.png');
+            background-size: 1152px 128px; /* 9 frames at 128px each */
+            image-rendering: pixelated;
+            opacity: 0;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        h1 {
+            font-size: clamp(2rem, 8vw, 5rem);
+            font-weight: 300;
+            letter-spacing: 0.05em;
+            text-align: center;
+            position: absolute;
+            white-space: nowrap;
+            z-index: 3;
+        }
+
+        h1 span {
+            display: inline-block;
+            transition: opacity 0.15s, transform 0.15s;
+        }
+
+        h1 span.eaten {
+            opacity: 0;
+            transform: scale(0.5) translateY(-20px);
+        }
+
+        .scroll-indicator {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            opacity: 1;
+            transition: opacity 0.3s;
+            z-index: 3;
+        }
+
+        .scroll-indicator.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .scroll-text {
+            font-size: 0.85rem;
+            letter-spacing: 0.1em;
+            text-transform: lowercase;
+            opacity: 0.6;
+        }
+
+        .arrow {
+            width: 20px;
+            height: 20px;
+            border-right: 2px solid #fff;
+            border-bottom: 2px solid #fff;
+            transform: rotate(45deg);
+            opacity: 0.6;
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {
+                transform: rotate(45deg) translateY(0);
+            }
+            40% {
+                transform: rotate(45deg) translateY(8px);
+            }
+            60% {
+                transform: rotate(45deg) translateY(4px);
+            }
+        }
+
+        /* Canvas for crisp pixel art */
+        #ostrichCanvas {
+            position: fixed;
+            left: -100vw;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 10;
+            pointer-events: none;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+            filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+        }
+
+        /* Button - emerges from starfield */
+        .mystery-button {
+            padding: 20px 60px;
+            font-size: 1.2rem;
+            background: transparent;
+            color: #fff;
+            border: 2px solid #fff;
+            cursor: pointer;
+            letter-spacing: 0.1em;
+            text-transform: lowercase;
+            transition: all 0.3s;
+            opacity: 0;
+            pointer-events: none;
+            position: absolute;
+            transform: scale(0.5);
+            z-index: 5;
+        }
+
+        .mystery-button.visible {
+            opacity: 1;
+            pointer-events: all;
+            transform: scale(1);
+            transition: opacity 2s ease-out, transform 2s ease-out;
+        }
+
+        .mystery-button:hover {
+            background: #fff;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <!-- Starfield background -->
+    <div class="starfield" id="starfield"></div>
+
+    <div class="container">
+        <h1 id="mainText"></h1>
+        <button class="mystery-button" id="button">button</button>
+        <div class="scroll-indicator" id="scrollIndicator">
+            <div class="scroll-text">scroll to continue</div>
+            <div class="arrow"></div>
+        </div>
+    </div>
+
+    <!-- Canvas for pixel-perfect ostrich rendering -->
+    <canvas id="ostrichCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('ostrichCanvas');
+        const ctx = canvas.getContext('2d', { alpha: true });
+        const mainText = document.getElementById('mainText');
+        const scrollIndicator = document.getElementById('scrollIndicator');
+        const button = document.getElementById('button');
+        const starfield = document.getElementById('starfield');
+        
+        // Set canvas size (will scale with CSS)
+        const scale = 15; // How much to scale up the 32x32 sprite
+        canvas.width = 32 * scale;
+        canvas.height = 32 * scale;
+        
+        // Disable image smoothing for crisp pixels
+        ctx.imageSmoothingEnabled = false;
+        ctx.mozImageSmoothingEnabled = false;
+        ctx.webkitImageSmoothingEnabled = false;
+        ctx.msImageSmoothingEnabled = false;
+        
+        // Load sprite sheet
+        const spriteSheet = new Image();
+        spriteSheet.src = 'OstrichRun.png';
+        
+        // Sprite animation (4 frames in OstrichRun.png)
+        const spriteFrames = 4;
+        const frameWidth = 32;
+        const frameHeight = 32;
+        let currentFrame = 0;
+        let frameCounter = 0;
+        
+        // Split text into individual letters wrapped in spans
+        const text = "Hi I'm Chad Stewart";
+        const letters = text.split('').map((char, i) => {
+            const span = document.createElement('span');
+            span.textContent = char;
+            span.dataset.index = i;
+            return span;
+        });
+        letters.forEach(span => mainText.appendChild(span));
+        
+        let virtualScroll = 0;
+        let smoothScroll = 0;
+        let animationProgress = 0;
+        let autoCompleting = false;
+        let velocity = 0;
+        let ostrichX = -canvas.width;
+        let starfieldPhase = false;
+        let shootingStarInterval = null;
+
+        // Handle wheel events (desktop)
+        document.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            if (!autoCompleting) {
+                virtualScroll += e.deltaY * 1.5;
+                virtualScroll = Math.max(0, Math.min(virtualScroll, 2000));
+                velocity = Math.abs(e.deltaY);
+            }
+        }, { passive: false });
+
+        // Handle touch events (mobile)
+        let lastTouchY = 0;
+
+        document.addEventListener('touchstart', (e) => {
+            lastTouchY = e.touches[0].clientY;
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (!autoCompleting) {
+                const touchY = e.touches[0].clientY;
+                const delta = lastTouchY - touchY;
+                lastTouchY = touchY;
+                
+                virtualScroll += delta * 3;
+                virtualScroll = Math.max(0, Math.min(virtualScroll, 2000));
+                velocity = Math.abs(delta);
+            }
+        }, { passive: false });
+
+        // Draw sprite frame to canvas
+        function drawSprite() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw the current frame scaled up
+            ctx.drawImage(
+                spriteSheet,
+                currentFrame * frameWidth, 0,
+                frameWidth, frameHeight,
+                0, 0,
+                canvas.width, canvas.height
+            );
+        }
+
+        // Create a shooting star
+        function createShootingStar() {
+            const star = document.createElement('div');
+            star.className = 'shooting-star';
+            
+            // Random starting position at top-right area
+            const startX = window.innerWidth * 0.7 + Math.random() * window.innerWidth * 0.3;
+            const startY = Math.random() * window.innerHeight * 0.3;
+            
+            star.style.left = startX + 'px';
+            star.style.top = startY + 'px';
+            
+            document.body.appendChild(star);
+            
+            // Animate shooting star
+            let frame = 0;
+            const totalFrames = 9;
+            let position = 0;
+            
+            star.style.opacity = '1';
+            
+            const animate = () => {
+                // Update sprite frame
+                frame = (frame + 1) % totalFrames;
+                star.style.backgroundPosition = `-${frame * 128}px 0`;
+                
+                // Move diagonally down-left
+                position += 8;
+                star.style.transform = `translate(-${position}px, ${position * 0.5}px)`;
+                
+                // Fade out near end
+                if (position > 400) {
+                    star.style.opacity = Math.max(0, 1 - (position - 400) / 100);
+                }
+                
+                if (position < 600) {
+                    requestAnimationFrame(animate);
+                } else {
+                    star.remove();
+                }
+            };
+            
+            requestAnimationFrame(animate);
+        }
+
+        // Animation loop for smooth rendering
+        function animationLoop() {
+            // Smooth scroll with easing
+            smoothScroll += (virtualScroll - smoothScroll) * 0.15;
+            
+            const maxScroll = 2000;
+            animationProgress = Math.min(smoothScroll / maxScroll, 1);
+            
+            // Smooth easing curve (ease-in-out)
+            const eased = animationProgress < 0.5
+                ? 2 * animationProgress * animationProgress
+                : 1 - Math.pow(-2 * animationProgress + 2, 2) / 2;
+            
+            // Move ostrich across screen with easing - exit completely off right side
+            const screenWidth = window.innerWidth;
+            const ostrichWidth = canvas.width;
+            const startPos = -ostrichWidth;
+            const endPos = screenWidth + ostrichWidth;
+            ostrichX = startPos + (endPos - startPos) * eased;
+            
+            canvas.style.left = ostrichX + 'px';
+            
+            // Update sprite frame based on movement
+            if (velocity > 0.1 || autoCompleting) {
+                frameCounter++;
+                if (frameCounter % 5 === 0) {
+                    currentFrame = (currentFrame + 1) % spriteFrames;
+                    drawSprite();
+                }
+            }
+            
+            // Decay velocity
+            velocity *= 0.92;
+            
+            // Hide scroll indicator once started
+            if (animationProgress > 0.02) {
+                scrollIndicator.classList.add('hidden');
+            }
+            
+            // Start fading in starfield at 90% progress
+            if (animationProgress >= 0.9 && !starfieldPhase) {
+                starfieldPhase = true;
+                starfield.classList.add('visible');
+            }
+            
+            // Letter-by-letter eating effect
+            const ostrichCenterX = ostrichX + (ostrichWidth / 2);
+            
+            letters.forEach((span, i) => {
+                const rect = span.getBoundingClientRect();
+                const letterCenterX = rect.left + rect.width / 2;
+                
+                if (ostrichCenterX > letterCenterX && !autoCompleting) {
+                    span.classList.add('eaten');
+                }
+            });
+            
+            // Auto-complete at 75%
+            if (animationProgress >= 0.75 && !autoCompleting) {
+                autoComplete();
+            }
+            
+            requestAnimationFrame(animationLoop);
+        }
+
+        function autoComplete() {
+            autoCompleting = true;
+            
+            // Eat all remaining letters
+            letters.forEach(span => span.classList.add('eaten'));
+            
+            // Animate ostrich finishing walk completely off screen
+            const currentPos = ostrichX;
+            const targetPos = window.innerWidth + canvas.width;
+            const duration = 1500;
+            const startTime = Date.now();
+            
+            function animate() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                
+                const eased = 1 - Math.pow(1 - progress, 3);
+                ostrichX = currentPos + (targetPos - currentPos) * eased;
+                canvas.style.left = ostrichX + 'px';
+                
+                // Continue sprite animation
+                frameCounter++;
+                if (frameCounter % 5 === 0) {
+                    currentFrame = (currentFrame + 1) % spriteFrames;
+                    drawSprite();
+                }
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    // Ostrich is gone, wait for starfield fade-in to complete
+                    setTimeout(() => {
+                        startStarfieldSequence();
+                    }, 3000); // Wait 3 seconds for stars to fully fade in
+                }
+            }
+            
+            animate();
+        }
+
+        function startStarfieldSequence() {
+            // First shooting star
+            createShootingStar();
+            
+            // Show button after first shooting star
+            setTimeout(() => {
+                button.classList.add('visible');
+            }, 1500);
+            
+            // Continue shooting stars every 3 seconds
+            shootingStarInterval = setInterval(() => {
+                createShootingStar();
+            }, 3000);
+        }
+
+        // Wait for sprite sheet to load, then start
+        spriteSheet.onload = () => {
+            drawSprite();
+            animationLoop();
+        };
+    </script>
+</body>
+</html>
